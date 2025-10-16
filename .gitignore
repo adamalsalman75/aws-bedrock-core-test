@@ -1,0 +1,46 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+venv/
+env/
+
+# Environment variables and secrets
+.env
+.env.local
+.env.*.local
+*.env
+
+# AWS credentials
+.aws/
+aws-credentials.json
+credentials.json
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Other sensitive files
+secrets/
+*.pem
+*.key
+*.cert
