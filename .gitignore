@@ -44,3 +44,7 @@ secrets/
 *.pem
 *.key
 *.cert
+
+# Bedrock AgentCore build artifacts (auto-generated)
+.bedrock_agentcore/
+.dockerignore
