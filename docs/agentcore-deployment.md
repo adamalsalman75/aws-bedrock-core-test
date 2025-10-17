@@ -1,8 +1,141 @@
 # AWS Bedrock AgentCore Deployment Guide
 
-## Overview
+## What is Bedrock AgentCore?
 
-AWS Bedrock AgentCore provides a serverless runtime for deploying AI agents that use AWS Bedrock models. This guide covers deployment using the `agentcore` CLI.
+**AWS Bedrock AgentCore** is a serverless platform for deploying and running AI agents in production on AWS infrastructure. It eliminates the operational overhead of managing containers, scaling, and infrastructure while providing native integration with AWS Bedrock models.
+
+**What AgentCore Provides**:
+- **Serverless Runtime**: Fully managed container orchestration (no ECS/EKS/Lambda required)
+- **Auto-Scaling**: Scales from zero to handle variable workloads
+- **Native Bedrock Integration**: Direct access to Claude, Titan, and other foundation models
+- **Built-in Observability**: CloudWatch logs, metrics, and GenAI-specific dashboards
+- **IAM Security**: Automatic execution roles with least-privilege permissions
+- **Container Deployment**: Packages your Python agent as a Docker image (ARM64)
+
+**What You Build**:
+- Python agent code using frameworks like Strands Agents
+- `pyproject.toml` with dependencies (UV native support)
+- MCP integrations or custom tools
+- Configuration via environment variables and AWS Secrets Manager
+
+## How AgentCore Works
+
+AgentCore handles the entire deployment pipeline from source code to production runtime:
+
+```
+Your Code (my_agent.py + agent/)
+         ↓
+    agentcore configure    → Creates .bedrock_agentcore.yaml + Dockerfile
+         ↓
+    agentcore launch       → Triggers AWS deployment pipeline:
+         ↓
+    ┌─────────────────────────────────────────────────┐
+    │  1. Source Upload:                              │
+    │     • Zip source code                           │
+    │     • Upload to S3 bucket                       │
+    │     • Bucket: bedrock-agentcore-codebuild-...   │
+    └─────────────────────────────────────────────────┘
+                    ↓
+    ┌─────────────────────────────────────────────────┐
+    │  2. CodeBuild (Docker Build):                   │
+    │     • Pulls UV base image (ARM64)               │
+    │     • Copies source code                        │
+    │     • Runs: uv pip install . (from pyproject)   │
+    │     • Builds Docker image                       │
+    │     • Project: bedrock-agentcore-*-builder      │
+    └─────────────────────────────────────────────────┘
+                    ↓
+    ┌─────────────────────────────────────────────────┐
+    │  3. ECR Push:                                   │
+    │     • Creates ECR repository (if needed)        │
+    │     • Pushes Docker image                       │
+    │     • Tags with timestamp                       │
+    │     • Repo: bedrock-agentcore-financial_ai...   │
+    └─────────────────────────────────────────────────┘
+                    ↓
+    ┌─────────────────────────────────────────────────┐
+    │  4. IAM Role Creation:                          │
+    │     • Creates execution role (if needed)        │
+    │     • Attaches Bedrock permissions              │
+    │     • Attaches Secrets Manager permissions      │
+    │     • Role: AmazonBedrockAgentCoreSDKRuntime-*  │
+    └─────────────────────────────────────────────────┘
+                    ↓
+    ┌─────────────────────────────────────────────────┐
+    │  5. AgentCore Runtime:                          │
+    │     • Deploys container to serverless runtime   │
+    │     • Configures environment variables          │
+    │     • Exposes /invocations endpoint             │
+    │     • Creates CloudWatch log group              │
+    │     • Status: CREATING → READY                  │
+    └─────────────────────────────────────────────────┘
+                    ↓
+         Production Agent (invokable via agentcore invoke)
+```
+
+**Key Infrastructure**:
+- **Compute**: AWS Fargate (ARM64 containers, managed by AgentCore)
+- **Storage**: ECR for Docker images, S3 for build sources
+- **Build**: CodeBuild for Docker image compilation
+- **Security**: IAM roles, Secrets Manager for credentials
+- **Observability**: CloudWatch Logs + GenAI dashboards
+
+## How This Example Uses AgentCore
+
+Our financial AI agent (`my_agent.py`) demonstrates a production-ready AgentCore deployment:
+
+**Local Development**:
+```bash
+# Run locally (port 8080)
+uv run python my_agent.py
+```
+
+**Production Deployment**:
+```bash
+# Configure → Deploy → Invoke
+agentcore configure --entrypoint my_agent.py --name financial_ai_agent
+agentcore launch --env AUTH_SERVER_TOKEN_URL=... --env FINANCE_MCP_URL=...
+agentcore invoke '{"prompt": "What is TSLA stock price?"}'
+```
+
+**What Gets Deployed**:
+1. **Agent Code**: `my_agent.py` + `agent/` package (auth, config, MCP client)
+2. **Dependencies**: From `pyproject.toml` (strands-agents, mcp, httpx, etc.)
+3. **Secrets**: OAuth2 credentials in AWS Secrets Manager (`finance-mcp-oauth2`)
+4. **Environment**: MCP URLs, token endpoints (non-sensitive config)
+5. **Runtime**: Claude Sonnet 4.5 model (`us.anthropic.claude-sonnet-4-5-20250929-v1:0`)
+
+**Runtime Flow**:
+```
+User → agentcore invoke → AgentCore Runtime → Docker Container
+                                                      ↓
+                                            my_agent.py starts
+                                                      ↓
+                                    Load config (Secrets Manager)
+                                                      ↓
+                                    OAuth2 token from auth server
+                                                      ↓
+                                    Connect to Finance MCP server
+                                                      ↓
+                                    List tools (stocks, yields, etc.)
+                                                      ↓
+                                    Create Strands Agent + tools
+                                                      ↓
+                                    Process user prompt
+                                                      ↓
+                                    Call Claude Sonnet 4.5 (Bedrock)
+                                                      ↓
+                                    Execute MCP tools (stock prices)
+                                                      ↓
+                                    Return response → User
+```
+
+**Why This Architecture**:
+- **Serverless**: No server management, scales automatically
+- **Secure**: OAuth2 credentials never in code, IAM for AWS access
+- **Observable**: CloudWatch logs show OAuth flow, MCP connections, tool calls
+- **Reproducible**: `pyproject.toml` ensures consistent dependencies
+- **Cross-Region**: Claude model uses US cross-region inference for availability
 
 ## Prerequisites
 
@@ -62,13 +195,41 @@ uv run agentcore configure \
 - `--name`: Agent name (used for CloudWatch logs, ECR repo, etc.) - use underscores, not hyphens
 - `--region`: AWS region for deployment
 
-**What this does**:
-- Auto-detects `pyproject.toml` (no need for `requirements.txt`!)
-- Creates `.bedrock_agentcore.yaml` with your settings
-- Generates Dockerfile using UV's official Docker image
-- Creates `.dockerignore` file
+**What this command does**:
 
-**Note**: AgentCore uses UV natively - it installs dependencies directly from `pyproject.toml` using `uv pip install .` in the Docker build.
+1. **Detects project structure**: Scans for `pyproject.toml` (no `requirements.txt` needed)
+2. **Creates `.bedrock_agentcore.yaml`**: Configuration file with agent settings
+3. **Generates `.bedrock_agentcore/financial_ai_agent/Dockerfile`**: Uses `ghcr.io/astral-sh/uv:python3.13-bookworm-slim`
+4. **Creates `.dockerignore`**: Excludes unnecessary files from Docker build
+
+**Files created**:
+
+`.bedrock_agentcore.yaml`:
+```yaml
+default_agent: financial_ai_agent
+agents:
+  financial_ai_agent:
+    name: financial_ai_agent
+    entrypoint: /path/to/my_agent.py
+    platform: linux/arm64
+    container_runtime: docker
+    aws:
+      execution_role_auto_create: true
+      region: us-east-1
+      ecr_auto_create: true
+```
+
+`.bedrock_agentcore/financial_ai_agent/Dockerfile`:
+```dockerfile
+FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim
+WORKDIR /app
+ENV UV_SYSTEM_PYTHON=1 UV_COMPILE_BYTECODE=1 PYTHONUNBUFFERED=1
+COPY . .
+RUN cd . && uv pip install .  # Reads pyproject.toml
+CMD ["opentelemetry-instrument", "python", "-m", "my_agent"]
+```
+
+**Key Point**: AgentCore uses UV natively - dependencies are installed from `pyproject.toml` during Docker build.
 
 ### Step 2: Deploy to AWS
 
@@ -83,28 +244,64 @@ uv run agentcore launch \
 **Environment Variables**:
 - `AUTH_SERVER_TOKEN_URL`: OAuth2 token endpoint (public, not secret)
 - `FINANCE_MCP_URL`: MCP server URL (public, not secret)
-- `SECRET_NAME`: Name of secret in Secrets Manager (tells config.py to use it)
+- `SECRET_NAME`: Name of secret in Secrets Manager (tells `agent/config.py` to load credentials)
 - `AWS_DEFAULT_REGION`: Region for boto3 Secrets Manager client
 
-**What this does**:
-1. **Packages code**: Creates deployment package with `my_agent.py` + `agent/` package
-2. **Builds Docker image**: ARM64 container with Python 3.13 + dependencies
-3. **Creates ECR repository**: `financial-ai-agent` in your AWS account
-4. **Pushes to ECR**: Uploads Docker image
-5. **Creates IAM role**: Execution role with Bedrock + Secrets Manager permissions
-6. **Deploys to AgentCore**: Creates runtime endpoint
-7. **Returns ARN**: Agent runtime ARN for invocation
+**What this command does** (see "How AgentCore Works" diagram for full pipeline):
+
+**Phase 1: Source Upload to S3**
+1. Zips your project directory (`my_agent.py`, `agent/`, `pyproject.toml`, etc.)
+2. Creates S3 bucket: `bedrock-agentcore-codebuild-sources-090719695391-us-east-1` (if needed)
+3. Uploads source zip to S3 for CodeBuild access
+
+**Phase 2: Docker Image Build (CodeBuild)**
+4. Creates CodeBuild project: `bedrock-agentcore-financial_ai_agent-builder` (if needed)
+5. Creates IAM build role: `AmazonBedrockAgentCoreSDKCodeBuild-us-east-1-*` (if needed)
+6. Triggers CodeBuild job:
+   - Pulls `ghcr.io/astral-sh/uv:python3.13-bookworm-slim` base image
+   - Downloads source zip from S3
+   - Runs `uv pip install .` (reads `pyproject.toml` for dependencies)
+   - Builds ARM64 Docker image
+   - Tags image with timestamp
+
+**Phase 3: Push to ECR**
+7. Creates ECR repository: `bedrock-agentcore-financial_ai_agent` (if needed)
+8. Pushes built Docker image to ECR
+9. Image URI: `090719695391.dkr.ecr.us-east-1.amazonaws.com/bedrock-agentcore-financial_ai_agent:latest`
+
+**Phase 4: IAM Role Setup**
+10. Creates IAM execution role: `AmazonBedrockAgentCoreSDKRuntime-us-east-1-a7e5687419` (if needed)
+11. Attaches policies:
+    - `bedrock:InvokeModel` for Claude Sonnet 4.5
+    - `secretsmanager:GetSecretValue` for AgentCore identity secrets
+    - `logs:*` for CloudWatch logging
+12. **Note**: Custom policy needed for `finance-mcp-oauth2` secret (see Step 3)
+
+**Phase 5: AgentCore Runtime Deployment**
+13. Creates AgentCore runtime: `financial_ai_agent-ZhY4bUBFJX`
+14. Configures:
+    - Container image from ECR
+    - Environment variables (AUTH_SERVER_TOKEN_URL, FINANCE_MCP_URL, SECRET_NAME, etc.)
+    - IAM execution role
+    - CloudWatch log group: `/aws/bedrock-agentcore/runtimes/financial_ai_agent-ZhY4bUBFJX-DEFAULT`
+15. Deploys to AWS Fargate (ARM64, serverless)
+16. Exposes `/invocations` endpoint
+17. Status transitions: `CREATING` → `READY` (2-5 minutes)
 
 **Expected output**:
 ```
-✓ Building container...
+✓ Uploading source to S3...
+✓ Starting CodeBuild job...
+✓ Building Docker image (ARM64)...
 ✓ Pushing to ECR...
 ✓ Creating execution role...
-✓ Deploying to AgentCore...
+✓ Deploying to AgentCore runtime...
 
 Agent Runtime ARN: arn:aws:bedrock:us-east-1:090719695391:agent-runtime/financial-ai-agent
 Status: CREATING
 ```
+
+**Build Time**: ~3-5 minutes (CodeBuild + ECR push + runtime provisioning)
 
 ### Step 3: Add Secrets Manager Permissions
 
@@ -208,72 +405,76 @@ CMD ["opentelemetry-instrument", "python", "-m", "my_agent"]
 
 **Note**: AgentCore uses UV's official Docker image and installs directly from `pyproject.toml` - no `requirements.txt` needed!
 
-## AWS Resources Created
+## AWS Resources Created by AgentCore
 
-AgentCore automatically creates:
+When you run `agentcore launch`, the following AWS resources are automatically created and configured:
 
-1. **ECR Repository**: `financial-ai-agent`
-   - Stores Docker image
-   - Tagged with deployment timestamp
+### Build Infrastructure (CodeBuild Mode)
 
-2. **IAM Execution Role**: `agentcore-execution-role-financial-ai-agent`
-   - **Trust policy**: Allows Bedrock to assume role
-   - **Permissions**:
-     - `bedrock:InvokeModel` (Claude Sonnet 4.5)
-     - `secretsmanager:GetSecretValue` (read `finance-mcp-oauth2`)
-     - `logs:CreateLogGroup`, `logs:CreateLogStream`, `logs:PutLogEvents`
+**1. S3 Bucket** (source code storage):
+- Bucket: `bedrock-agentcore-codebuild-sources-090719695391-us-east-1`
+- Purpose: Stores zipped source code for CodeBuild
+- Console: https://s3.console.aws.amazon.com/s3/buckets?region=us-east-1
 
-3. **CloudWatch Log Group**: `/aws/bedrock/agentcore/financial-ai-agent`
-   - Contains agent execution logs
-   - Includes OAuth2 auth, MCP connection, tool calls, Claude responses
+**2. CodeBuild Project** (Docker image builder):
+- Project: `bedrock-agentcore-financial_ai_agent-builder`
+- Purpose: Builds ARM64 Docker image from source code
+- Reads: `pyproject.toml` for dependencies
+- Runs: `uv pip install .` in container
+- Console: https://console.aws.amazon.com/codesuite/codebuild/projects?region=us-east-1
 
-4. **AgentCore Runtime**: Serverless endpoint
-   - Scales automatically based on load
-   - Runs on AWS Fargate (ARM64)
-   - Billed per hour active
+**3. IAM Build Role** (CodeBuild permissions):
+- Role: `AmazonBedrockAgentCoreSDKCodeBuild-us-east-1-a7e5687419`
+- Permissions: ECR push, S3 read, CloudWatch logs
+- Console: https://console.aws.amazon.com/iam/home#/roles
 
-## Viewing Resources in AWS Console
+### Runtime Infrastructure
 
-After deployment, you can monitor and manage your agent through the AWS Console:
-
-### Quick Links (us-east-1)
-
-**Bedrock AgentCore Runtime** (main agent):
-- Console: https://console.aws.amazon.com/bedrock/home?region=us-east-1#/agent-core/runtimes
-- Look for: `financial_ai_agent-ZhY4bUBFJX`
-
-**CloudWatch Logs** (agent execution logs):
-- Console: https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#logsV2:log-groups
-- Log group: `/aws/bedrock-agentcore/runtimes/financial_ai_agent-ZhY4bUBFJX-DEFAULT`
-- Direct link: https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#logsV2:log-groups/log-group/$252Faws$252Fbedrock-agentcore$252Fruntimes$252Ffinancial_ai_agent-ZhY4bUBFJX-DEFAULT
-
-**GenAI Observability Dashboard** (recommended):
-- Direct link: https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#gen-ai-observability/agent-core
-- Shows: Agent invocations, token usage, latency, errors
-- **Note**: Data takes up to 10 minutes to appear after first invocation
-
-**ECR Repository** (Docker images):
-- Console: https://console.aws.amazon.com/ecr/repositories?region=us-east-1
+**4. ECR Repository** (Docker image storage):
 - Repository: `bedrock-agentcore-financial_ai_agent`
+- Purpose: Stores built Docker images (tagged with timestamps)
+- Platform: ARM64 containers
+- Console: https://console.aws.amazon.com/ecr/repositories?region=us-east-1
 - Direct link: https://console.aws.amazon.com/ecr/repositories/private/090719695391/bedrock-agentcore-financial_ai_agent?region=us-east-1
 
-**Secrets Manager** (OAuth2 credentials):
-- Console: https://console.aws.amazon.com/secretsmanager/listsecrets?region=us-east-1
-- Secret: `finance-mcp-oauth2`
-
-**IAM Roles** (permissions):
+**5. IAM Execution Role** (agent runtime permissions):
+- Role: `AmazonBedrockAgentCoreSDKRuntime-us-east-1-a7e5687419`
+- Trust policy: Allows Bedrock to assume role
+- Permissions:
+  - `bedrock:InvokeModel` (Claude Sonnet 4.5)
+  - `secretsmanager:GetSecretValue` (limited - requires custom policy for `finance-mcp-oauth2`)
+  - `logs:CreateLogGroup`, `logs:CreateLogStream`, `logs:PutLogEvents`
 - Console: https://console.aws.amazon.com/iam/home#/roles
-- Roles:
-  - `AmazonBedrockAgentCoreSDKRuntime-us-east-1-a7e5687419` (agent execution)
-  - `AmazonBedrockAgentCoreSDKCodeBuild-us-east-1-a7e5687419` (build)
 
-**CodeBuild** (build history):
-- Console: https://console.aws.amazon.com/codesuite/codebuild/projects?region=us-east-1
-- Project: `bedrock-agentcore-financial_ai_agent-builder`
+**6. Bedrock AgentCore Runtime** (serverless agent endpoint):
+- Runtime: `financial_ai_agent-ZhY4bUBFJX`
+- Compute: AWS Fargate (ARM64 containers)
+- Scaling: Automatic (scales to zero when idle)
+- Status: `CREATING` → `READY` (2-5 minutes)
+- Endpoint: `/invocations` (invoked via `agentcore invoke`)
+- Console: https://console.aws.amazon.com/bedrock/home?region=us-east-1#/agent-core/runtimes
 
-**S3 Bucket** (CodeBuild sources):
-- Console: https://s3.console.aws.amazon.com/s3/buckets?region=us-east-1
-- Bucket: `bedrock-agentcore-codebuild-sources-090719695391-us-east-1`
+**7. CloudWatch Log Group** (agent execution logs):
+- Log group: `/aws/bedrock-agentcore/runtimes/financial_ai_agent-ZhY4bUBFJX-DEFAULT`
+- Contents: OAuth2 auth, MCP connections, tool calls, Claude responses, errors
+- Retention: Default (never expire) - consider setting to 7-30 days
+- Console: https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#logsV2:log-groups
+- Direct link: https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#logsV2:log-groups/log-group/$252Faws$252Fbedrock-agentcore$252Fruntimes$252Ffinancial_ai_agent-ZhY4bUBFJX-DEFAULT
+
+### Pre-Existing Resources (Created Manually)
+
+**8. Secrets Manager Secret** (OAuth2 credentials):
+- Secret: `finance-mcp-oauth2`
+- Contains: `MCP_CLIENT_ID`, `MCP_CLIENT_SECRET`
+- Created: Manually (see `secrets-management.md`)
+- Console: https://console.aws.amazon.com/secretsmanager/listsecrets?region=us-east-1
+
+### Observability Dashboards
+
+**GenAI Observability Dashboard** (recommended):
+- Purpose: Agent-specific metrics (invocations, token usage, latency, errors)
+- Data delay: Up to 10 minutes after first invocation
+- Direct link: https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#gen-ai-observability/agent-core
 
 ## Updating a Deployed Agent
 

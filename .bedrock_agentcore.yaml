@@ -23,7 +23,7 @@ agents:
     bedrock_agentcore:
       agent_id: financial_ai_agent-ZhY4bUBFJX
       agent_arn: arn:aws:bedrock-agentcore:us-east-1:090719695391:runtime/financial_ai_agent-ZhY4bUBFJX
-      agent_session_id: b54fa60a-0ac6-477b-b7bb-9146e3a7f41a
+      agent_session_id: 123e4567-e89b-12d3-a456-426614174000
     codebuild:
       project_name: bedrock-agentcore-financial_ai_agent-builder
       execution_role: arn:aws:iam::090719695391:role/AmazonBedrockAgentCoreSDKCodeBuild-us-east-1-a7e5687419
