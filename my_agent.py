@@ -2,12 +2,14 @@
 AWS Financial AI Agent - Main entrypoint
 
 Bedrock AgentCore agent integrating Claude Sonnet 4.5 with
-production Finance MCP server for real-time financial data.
+production Finance MCP server for real-time financial data and
+file system operations for code generation.
 """
 
 from bedrock_agentcore import BedrockAgentCoreApp
 from strands import Agent
 from strands.models import BedrockModel
+from strands_tools import file_read, file_write, editor
 
 from agent import create_finance_client, load_config
 
@@ -42,12 +44,15 @@ def invoke(payload: dict) -> dict:
         # Keep MCP connection open during agent execution
         with finance_client:
             # Get tools from MCP server
-            tools = finance_client.list_tools_sync()
+            mcp_tools = finance_client.list_tools_sync()
 
-            # Create agent with finance tools
+            # Combine MCP tools with file system tools
+            all_tools = mcp_tools + [file_read, file_write, editor]
+
+            # Create agent with finance and file tools
             agent = Agent(
                 model=model,
-                tools=tools,
+                tools=all_tools,
                 system_prompt="""You are a helpful AI assistant powered by Claude Sonnet 4.5.
 
 You have access to financial market data tools including:
@@ -56,7 +61,12 @@ You have access to financial market data tools including:
 - Treasury yields and economic indicators
 - Analyst upgrades and downgrades
 
-Use these tools to provide accurate, up-to-date financial information."""
+You also have file system tools for code generation:
+- file_read: Read files, list directories, search for files
+- file_write: Create new files or overwrite existing files
+- editor: Edit existing files using search and replace
+
+Use these tools to provide accurate financial information and assist with code generation tasks."""
             )
 
             # Execute agent query while MCP connection is still open
@@ -64,11 +74,19 @@ Use these tools to provide accurate, up-to-date financial information."""
             return {"result": result.message}
 
     except Exception as e:
-        # Fallback to agent without MCP tools if connection fails
+        # Fallback to agent with only file tools if MCP connection fails
         print(f"Warning: Could not connect to Finance MCP server: {e}")
         agent = Agent(
             model=model,
-            system_prompt="You are a helpful AI assistant powered by Claude Sonnet 4.5."
+            tools=[file_read, file_write, editor],
+            system_prompt="""You are a helpful AI assistant powered by Claude Sonnet 4.5.
+
+You have file system tools for code generation:
+- file_read: Read files, list directories, search for files
+- file_write: Create new files or overwrite existing files
+- editor: Edit existing files using search and replace
+
+Use these tools to assist with code generation and file management tasks."""
         )
         result = agent(user_message)
         return {"result": result.message}

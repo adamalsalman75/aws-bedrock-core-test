@@ -35,12 +35,16 @@ The agent autonomously decides which financial tools to use based on your questi
    ```bash
    cp .env.example .env
    # Edit .env with your credentials
+   # Optional (dev): auto-approve file tools to skip prompts
+   echo "BYPASS_TOOL_CONSENT=true" >> .env
    ```
 
 3. **Run locally**:
    ```bash
    uv run python my_agent.py
    ```
+
+   If you see consent prompts from file tools, set `BYPASS_TOOL_CONSENT=true` in `.env` (dev only).
 
 4. **Test the agent**:
    ```bash
@@ -146,11 +150,61 @@ uv run agentcore configure --entrypoint my_agent.py --name financial_ai_agent --
 uv run agentcore launch \
   --env SECRET_NAME=finance-mcp-oauth2 \
   --env AUTH_SERVER_TOKEN_URL=https://auth.macrospire.com/oauth2/token \
-  --env FINANCE_MCP_URL=https://finance.macrospire.com/mcp
+  --env FINANCE_MCP_URL=https://finance.macrospire.com/mcp \
+  --env BYPASS_TOOL_CONSENT=true 
 
 # 3. Test deployed agent
 uv run agentcore invoke '{"prompt": "What is the current stock price of TSLA?"}'
+
+# Check status (READY means deployed)
+uv run agentcore status
 ```
+
+Note: Re-running `agentcore launch` with the same `--name` updates the existing runtime in-place (no need to delete first). To deploy a separate copy, run `agentcore configure` with a new `--name`.
+
+Cleanup existing runtime (optional):
+
+```bash
+uv run agentcore destroy --agent financial-ai-agent
+```
+
+#### Recommended answers for `agentcore configure` prompts
+
+- Dependency file: Press Enter to accept detected `pyproject.toml`.
+- Execution role: Press Enter to auto-create (reuses previously configured role if shown). Provide a specific ARN only if you must use an existing role.
+- ECR repository: Press Enter to auto-create (reuses existing repo if present).
+- Authorization configuration: `no` (use default IAM authorization).
+- Request header allowlist: `no`. If needed later, example: `Authorization, X-Amzn-Bedrock-AgentCore-Runtime-Custom-*`.
+- Memory configuration:
+  - Short‑term memory: Press Enter to enable (default; 30‑day retention).
+  - Existing memory list: Enter the number to reuse existing memory to keep context, or press Enter to create new.
+  - Long‑term memory: `no` by default. Choose `yes` only if you want cross‑session summaries/preferences (adds ~2–3 minutes processing on first run).
+- Default agent: Keep `financial_ai_agent` as default when prompted.
+
+Tip: You can skip memory entirely with `uv run agentcore configure --disable-memory`.
+
+#### Non-interactive configure (CI-friendly)
+
+- Accept all defaults (IAM auth, auto-create role/ECR, short-term memory, no header allowlist):
+  ```bash
+  yes '' | uv run agentcore configure \
+    --entrypoint my_agent.py \
+    --name financial_ai_agent \
+    --region us-east-1
+  ```
+
+- Skip memory prompts entirely (no STM/LTM):
+  ```bash
+  uv run agentcore configure \
+    --entrypoint my_agent.py \
+    --name financial_ai_agent \
+    --region us-east-1 \
+    --disable-memory
+  ```
+
+Notes:
+- `yes ''` feeds blank lines to accept defaults; use interactively if you need to reuse an existing memory ID or change header allowlist.
+- After configure, re-running `uv run agentcore launch` with the same `--name` updates the existing runtime in place.
 
 ## Resources
 
@@ -165,6 +219,7 @@ uv run agentcore invoke '{"prompt": "What is the current stock price of TSLA?"}'
 **Region**: `us-east-1`
 **Model**: Claude Sonnet 4.5 (cross-region inference profile)
 **Secrets**: AWS Secrets Manager (`finance-mcp-oauth2`)
+**Dev Flags**: `BYPASS_TOOL_CONSENT=true` to auto-approve file tools (avoid in production)
 
 ## License
 
