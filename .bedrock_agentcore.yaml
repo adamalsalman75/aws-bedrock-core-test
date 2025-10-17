@@ -1,0 +1,41 @@
+default_agent: financial_ai_agent
+agents:
+  financial_ai_agent:
+    name: financial_ai_agent
+    entrypoint: /Users/adam/projects/aws-agent-core/my_agent.py
+    platform: linux/arm64
+    container_runtime: docker
+    source_path: /Users/adam/projects/aws-agent-core
+    aws:
+      execution_role: arn:aws:iam::090719695391:role/AmazonBedrockAgentCoreSDKRuntime-us-east-1-a7e5687419
+      execution_role_auto_create: false
+      account: 090719695391
+      region: us-east-1
+      ecr_repository: 090719695391.dkr.ecr.us-east-1.amazonaws.com/bedrock-agentcore-financial_ai_agent
+      ecr_auto_create: false
+      network_configuration:
+        network_mode: PUBLIC
+        network_mode_config: null
+      protocol_configuration:
+        server_protocol: HTTP
+      observability:
+        enabled: true
+    bedrock_agentcore:
+      agent_id: financial_ai_agent-ZhY4bUBFJX
+      agent_arn: arn:aws:bedrock-agentcore:us-east-1:090719695391:runtime/financial_ai_agent-ZhY4bUBFJX
+      agent_session_id: bb55b57d-da7d-4e04-a4a4-0307c285b48c
+    codebuild:
+      project_name: bedrock-agentcore-financial_ai_agent-builder
+      execution_role: arn:aws:iam::090719695391:role/AmazonBedrockAgentCoreSDKCodeBuild-us-east-1-a7e5687419
+      source_bucket: bedrock-agentcore-codebuild-sources-090719695391-us-east-1
+    memory:
+      mode: STM_ONLY
+      memory_id: financial_ai_agent_mem-ekljqKGheH
+      memory_arn: arn:aws:bedrock-agentcore:us-east-1:090719695391:memory/financial_ai_agent_mem-ekljqKGheH
+      memory_name: financial_ai_agent_mem
+      event_expiry_days: 30
+      first_invoke_memory_check_done: true
+      was_created_by_toolkit: true
+    authorizer_configuration: null
+    request_header_configuration: null
+    oauth_configuration: null

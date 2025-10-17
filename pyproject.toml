@@ -7,6 +7,7 @@ requires-python = ">=3.13"
 dependencies = [
     "bedrock-agentcore>=1.0.3",
     "bedrock-agentcore-starter-toolkit>=0.1.25",
+    "boto3>=1.40.53",
     "mcp>=1.17.0",
     "python-dotenv>=1.1.1",
     "strands-agents>=1.12.0",

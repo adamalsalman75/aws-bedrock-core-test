@@ -4,7 +4,7 @@
 
 ## What This Agent Does
 
-This agent combines AWS Bedrock's Claude Sonnet 4.5 with your production Finance MCP server to provide:
+This agent combines AWS Bedrock's Claude Sonnet 4.5 with a production Finance MCP server to provide:
 
 - 📈 **Real-time stock prices** and market data
 - 💰 **Earnings reports** and analyst estimates
@@ -12,6 +12,42 @@ This agent combines AWS Bedrock's Claude Sonnet 4.5 with your production Finance
 - 🎯 **Analyst upgrades/downgrades** and recommendations
 
 The agent autonomously decides which financial tools to use based on your question.
+
+## Quick Start
+
+### Prerequisites
+
+- Python 3.13 with [UV package manager](https://github.com/astral-sh/uv)
+- Docker Desktop (for local development)
+- AWS Account with Bedrock access
+- Finance MCP Server credentials
+
+### Local Setup
+
+1. **Clone and install dependencies**:
+   ```bash
+   git clone <repo-url>
+   cd aws-agent-core
+   uv sync
+   ```
+
+2. **Configure environment** (see [docs/secrets-management.md](docs/secrets-management.md)):
+   ```bash
+   cp .env.example .env
+   # Edit .env with your credentials
+   ```
+
+3. **Run locally**:
+   ```bash
+   uv run python my_agent.py
+   ```
+
+4. **Test the agent**:
+   ```bash
+   curl -X POST http://localhost:8080/invocations \
+     -H "Content-Type: application/json" \
+     -d '{"prompt": "What is the current stock price of TSLA?"}'
+   ```
 
 ## Architecture
 
@@ -22,248 +58,98 @@ User → Bedrock AgentCore Runtime → Claude Sonnet 4.5 → Finance MCP Server 
 ```
 
 **Key Components:**
-- **Claude Sonnet 4.5** - Latest Anthropic model via AWS Bedrock cross-region inference
-- **Strands Agents** - Agentic framework for tool orchestration
-- **Finance MCP Server** - Production HTTP MCP server with OAuth2 authentication
-- **Bedrock AgentCore** - Serverless runtime for deployment
-
-## Prerequisites
-
-- **AWS Account**: `090719695391` (configured)
-- **Python 3.13** with UV package manager
-- **Docker Desktop** (running)
-- **Finance MCP Server** access with OAuth2 credentials
-
-## Environment Setup
-
-Your `.env` file contains:
-
-```bash
-# AWS Credentials
-AWS_ACCESS_KEY_ID=your-aws-key
-AWS_SECRET_ACCESS_KEY=your-aws-secret
-AWS_DEFAULT_REGION=us-east-1
-
-# OAuth2 credentials for Finance MCP Server
-AUTH_SERVER_TOKEN_URL=https://auth.macrospire.com/oauth2/token
-MCP_CLIENT_ID=content-engine-client
-MCP_CLIENT_SECRET=your-oauth-secret
-
-# Finance MCP Server
-FINANCE_MCP_URL=https://finance.macrospire.com/mcp
-```
-
-## Running the Agent Locally
-
-### Start the Agent
-
-```bash
-# The agent automatically loads .env file
-uv run python my_agent.py
-```
-
-The agent will:
-1. Load configuration from `.env` file
-2. Authenticate with your OAuth2 server
-3. Connect to your Finance MCP server
-4. Load all available financial tools
-5. Start listening on port 8080
-
-**Note**: Environment variables are automatically loaded via `python-dotenv`. No need to manually source `.env`!
-
-### Test the Agent
-
-```bash
-curl -X POST http://localhost:8080/invocations \
-  -H "Content-Type: application/json" \
-  -d '{"prompt": "What is the current stock price of TSLA?"}'
-```
-
-The agent will:
-- Receive your question
-- Determine which finance tools to use
-- Fetch real-time data from your MCP server
-- Generate a comprehensive response with Claude Sonnet 4.5
+- **Claude Sonnet 4.5**: Latest Anthropic model via AWS Bedrock cross-region inference
+- **Strands Agents**: Agentic framework for tool orchestration ([docs/strands.md](docs/strands.md))
+- **Finance MCP Server**: Production HTTP MCP server with OAuth2 authentication
+- **Bedrock AgentCore**: Serverless runtime for AWS deployment
 
 ## Project Structure
 
 ```
 aws-agent-core/
-├── agent/                      # Core agent package
-│   ├── __init__.py            # Package initialization
-│   ├── auth.py                # OAuth2TokenProvider class
-│   ├── config.py              # Configuration management
-│   └── mcp_client.py          # MCP client creation
-├── my_agent.py                # Main entrypoint (78 lines)
-├── pyproject.toml             # UV project configuration
-├── .env                       # Credentials (gitignored)
-├── .gitignore                 # Security exclusions
-├── PLAN.md                    # Deployment plan
-└── README.md                  # This file
+├── agent/              # Core agent package
+│   ├── auth.py        # OAuth2 token management
+│   ├── config.py      # Dual-mode config (local .env + AWS Secrets Manager)
+│   └── mcp_client.py  # Finance MCP client factory
+├── docs/              # Documentation
+│   ├── agentcore-deployment.md    # AWS deployment guide
+│   ├── aws-cli-authentication.md  # AWS credential setup
+│   ├── secrets-management.md      # Local vs AWS secrets
+│   └── strands.md                 # Strands framework guide
+├── my_agent.py        # Main entrypoint
+└── pyproject.toml     # UV dependencies
 ```
 
-### Code Organization
-
-The project follows Python best practices with clear separation of concerns:
-
-- **`agent/auth.py`** - OAuth2 authentication logic for MCP server
-- **`agent/config.py`** - Environment-based configuration loading
-- **`agent/mcp_client.py`** - Finance MCP client factory
-- **`my_agent.py`** - Bedrock AgentCore entrypoint (thin, delegates to package)
+**Code Organization:**
+- `agent/auth.py`: OAuth2 token provider with caching and auto-refresh
+- `agent/config.py`: Loads secrets from `.env` (local) or AWS Secrets Manager (production)
+- `agent/mcp_client.py`: Creates authenticated MCP client for Finance tools
+- `my_agent.py`: Bedrock AgentCore entrypoint with graceful fallback
 
 ## Key Technologies
 
-- **AWS Bedrock** - Managed AI service with Claude Sonnet 4.5
-- **Strands Agents** - Python agentic framework
-- **MCP (Model Context Protocol)** - Standard for connecting AI to tools
-- **OAuth2** - Secure authentication with Spring Authorization Server
-- **Bedrock AgentCore** - Serverless runtime for production deployment
+- **[AWS Bedrock](https://aws.amazon.com/bedrock/)**: Managed AI service with Claude models
+- **[Strands Agents](https://strandsagents.com/)**: AWS-native agentic framework ([docs/strands.md](docs/strands.md))
+- **[MCP](https://modelcontextprotocol.io/)**: Model Context Protocol for tool integration
+- **[Bedrock AgentCore](https://github.com/awslabs/amazon-bedrock-agentcore-samples)**: Serverless agent runtime
 
-## Dependencies
+## Documentation
 
-Installed via `uv`:
+Comprehensive guides in `/docs`:
 
-```toml
-bedrock-agentcore = ">=1.0.3"
-strands-agents = ">=1.12.0"
-bedrock-agentcore-starter-toolkit = ">=0.1.25"
-mcp = ">=1.17.0"
-strands-agents-tools = ">=0.2.11"  # Built-in tools
-```
+- **[agentcore-deployment.md](docs/agentcore-deployment.md)**: Complete AWS deployment guide
+  - Deployment modes (CodeBuild, local-build, local)
+  - Configuration and environment variables
+  - Monitoring, debugging, and cost optimization
 
-## Built-in Tools with Strands
+- **[aws-cli-authentication.md](docs/aws-cli-authentication.md)**: AWS credential setup
+  - Diagnosing invalid credentials
+  - Using .env credentials vs ~/.aws/credentials
+  - Profiles and AWS SSO
 
-Strands provides out-of-the-box tools via the `strands-agents-tools` package (similar to Claude Code):
+- **[secrets-management.md](docs/secrets-management.md)**: Local vs AWS secrets
+  - .env file for local development
+  - AWS Secrets Manager for production
+  - How agent/config.py detects environment
 
-### File System Tools
+- **[strands.md](docs/strands.md)**: Strands framework deep dive
+  - Agent and model concepts
+  - Built-in tools (file_read, calculator, etc.)
+  - MCP integration
+  - Advanced configuration
 
-- **`file_read`** - Advanced file reading with multiple modes:
-  - `view` - Full content with syntax highlighting
-  - `find` - Pattern matching with directory tree visualization
-  - `lines` - Read specific line ranges
-  - `search` - Pattern searching with context
-  - `diff` - Compare files or directories
-  - `time_machine` - View Git version history
-  - `document` - Generate Bedrock document blocks
+## Development Workflow
 
-- **`file_write`** - Secure file writing with user confirmation and syntax highlighting
-
-- **`editor`** - Iterative multi-file editing:
-  - Commands: `view`, `create`, `str_replace`, `insert`, `undo_edit`
-  - Automatic backups and content caching
-  - Syntax highlighting and smart line finding
-
-### Computation Tools
-
-- **`calculator`** - SymPy-powered math engine:
-  - Basic arithmetic, trigonometry, logarithms
-  - Equation solving (single and systems)
-  - Derivatives, integrals, limits, series expansions
-  - Matrix operations, complex numbers
-
-### Agent Control Tools
-
-- **`think`** - Recursive thinking/reasoning cycles for deep analysis
-- **`stop`** - Gracefully terminate event loop
-- **`handoff_to_user`** - Pause execution for human input/approval
-
-### Data Tools
-
-- **`retrieve`** - Amazon Bedrock Knowledge Base semantic search
-- **`current_time`** - Get current timestamp
-
-### Usage Example
-
-```python
-from strands import Agent
-from strands.models import BedrockModel
-from strands_tools import calculator, file_read, current_time
-
-model = BedrockModel(model_id="us.anthropic.claude-sonnet-4-5-20250929-v1:0")
-
-agent = Agent(
-    model=model,
-    tools=[calculator, file_read, current_time],
-    system_prompt="You are a helpful assistant with file and math capabilities."
-)
-
-result = agent("Calculate the square root of 144 and read config.txt")
-```
-
-**Note**: File tools require user consent by default. Set `os.environ["BYPASS_TOOL_CONSENT"]="true"` for development.
-
-## Deploying to AWS
-
-### Configure and Deploy
-
+**Local Development:**
 ```bash
-# Configure the agent for deployment
-agentcore configure -e my_agent.py
-
-# Deploy to AWS (auto-creates all required resources)
-agentcore launch
-
-# Test the deployed agent
-agentcore invoke '{"prompt": "What is the current stock price of TSLA?"}'
-```
-
-### Required AWS Permissions
-
-Your AWS account needs:
-- `BedrockAgentCoreFullAccess` managed policy
-- `AmazonBedrockFullAccess` managed policy
-- Model Access: Anthropic Claude Sonnet 4.5 enabled in Amazon Bedrock console
-
-## Available Claude Models
-
-You have access to 24 Claude models including:
-- **Claude Sonnet 4.5** (current) - Best for agents and complex reasoning
-- **Claude Opus 4.1** - Maximum intelligence
-- **Claude Haiku 4.5** - Fast and cost-effective
-- **Claude 3.x series** - Various versions for different use cases
-
-## How It Works
-
-1. **OAuth2 Authentication**: Agent requests token from your Spring Authorization Server with `mcp:read mcp:write mcp:tools` scopes
-
-2. **MCP Connection**: Agent connects to Finance MCP server using bearer token
-
-3. **Tool Discovery**: Agent fetches all available finance tools from MCP server
-
-4. **Query Processing**: Claude Sonnet 4.5 analyzes your question and decides which tools to use
-
-5. **Tool Execution**: Agent calls finance tools via MCP protocol
-
-6. **Response Generation**: Claude synthesizes tool results into natural language response
-
-## Useful Commands
-
-### UV Commands
-
-```bash
-# Add a package
+# Add dependency
 uv add <package-name>
 
-# Run Python script
+# Run locally
 uv run python my_agent.py
 
-# Sync dependencies
-uv sync
+# Test local endpoint
+curl -X POST http://localhost:8080/invocations \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "What is TSLA stock price?"}'
 ```
 
-### AWS CLI Commands
+### Deploy to AWS
+
+See [docs/agentcore-deployment.md](docs/agentcore-deployment.md) for complete deployment guide.
 
 ```bash
-# Verify AWS credentials
-aws sts get-caller-identity
+# 1. Configure AgentCore (auto-detects pyproject.toml)
+uv run agentcore configure --entrypoint my_agent.py --name financial_ai_agent --region us-east-1
 
-# List available Claude models
-aws bedrock list-foundation-models --region us-east-1 --by-provider anthropic
+# 2. Deploy to AWS
+uv run agentcore launch \
+  --env SECRET_NAME=finance-mcp-oauth2 \
+  --env AUTH_SERVER_TOKEN_URL=https://auth.macrospire.com/oauth2/token \
+  --env FINANCE_MCP_URL=https://finance.macrospire.com/mcp
 
-# Check Claude Sonnet 4.5 availability
-aws bedrock get-foundation-model-availability \
-  --region us-east-1 \
-  --model-id anthropic.claude-sonnet-4-5-20250929-v1:0
+# 3. Test deployed agent
+uv run agentcore invoke '{"prompt": "What is the current stock price of TSLA?"}'
 ```
 
 ## Resources
@@ -271,13 +157,15 @@ aws bedrock get-foundation-model-availability \
 - [Amazon Bedrock AgentCore Samples](https://github.com/awslabs/amazon-bedrock-agentcore-samples)
 - [Strands Agents Documentation](https://strandsagents.com/)
 - [Model Context Protocol](https://modelcontextprotocol.io/)
-- AWS Account: `090719695391`
-- Default Region: `us-east-1`
+- [AWS Bedrock Pricing](https://aws.amazon.com/bedrock/pricing/)
 
-## Notes
+## Configuration
 
-- This project demonstrates AWS Bedrock AgentCore with production MCP integration
-- Docker must be running for local agent development
-- All credentials stored in `.env` are gitignored
-- Agent uses inference profiles for cross-region availability
-- OAuth2 tokens are cached and auto-refreshed
+**AWS Account**: `090719695391`
+**Region**: `us-east-1`
+**Model**: Claude Sonnet 4.5 (cross-region inference profile)
+**Secrets**: AWS Secrets Manager (`finance-mcp-oauth2`)
+
+## License
+
+[Your License Here]
